@@ -9,8 +9,5 @@ __pycache__/
 dist/
 build/
 
-# Generated index (rebuild with scripts/build_index.py)
-data/chroma/
-
 # OS
 .DS_Store

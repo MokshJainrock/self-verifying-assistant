@@ -11,6 +11,23 @@ from dotenv import load_dotenv
 
 load_dotenv()  # read .env into environment variables
 
+
+def _secret(key: str, default: str = "") -> str:
+    """Read from env first, then Streamlit Cloud secrets, then default."""
+    val = os.getenv(key)
+    if val:
+        return val
+    try:
+        import streamlit as st
+
+        if key in st.secrets:
+            val = str(st.secrets[key])
+            os.environ[key] = val
+            return val
+    except Exception:
+        pass
+    return default
+
 # --- Paths ---
 # Where Chroma writes its files. Persistent so we don't re-embed on every run
 # (embedding the whole corpus is the slow part; we pay it once).
@@ -39,9 +56,9 @@ TOP_K = 4
 # Using OpenAI's API (gpt-4o-mini). The wrapper in llm.py is OpenAI-compatible, so
 # this is just three env values — base URL, key, model. (You could repoint these at a
 # local Ollama server instead by changing the base URL + model; no code change needed.)
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")  # set OPENAI key as LLM_API_KEY in .env
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+LLM_BASE_URL = _secret("LLM_BASE_URL", "https://api.openai.com/v1")
+LLM_API_KEY = _secret("LLM_API_KEY", "")
+LLM_MODEL = _secret("LLM_MODEL", "gpt-4o-mini")
 
 # How many corpus paragraphs to index. Env-overridable so you can scale the knowledge
 # base without touching code: `MAX_DOCS=19000 python -m scripts.build_index` indexes the
@@ -55,7 +72,8 @@ MAX_DOCS = int(os.getenv("MAX_DOCS", "5000"))
 # --- Verifier (Claude) ---
 # A DIFFERENT model from the Responder, deliberately. Default to the strongest
 # judge; downgrade only as a conscious cost decision (see study-guide notes).
-VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "claude-opus-4-8")
+VERIFIER_MODEL = _secret("VERIFIER_MODEL", "claude-opus-4-8")
+_secret("ANTHROPIC_API_KEY", "")
 
 # --- Confidence Gate thresholds ---
 # These are the knobs an interviewer will ask you to defend. They are EMPIRICAL:

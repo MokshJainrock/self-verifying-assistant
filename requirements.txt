@@ -1,8 +1,9 @@
-# All free and pip-installable.
-chromadb              # local, persistent vector database (stores text + metadata + vectors)
-sentence-transformers # local embedding models (no API cost on the high-volume path)
-openai                # client library — also talks to a local Ollama server (OpenAI-compatible API)
-anthropic             # official Anthropic SDK — the independent Verifier judge (Claude)
-python-dotenv         # load secrets/config from a .env file
-streamlit             # the dashboard
-datasets              # HuggingFace loader for SQuAD 2.0 (free download)
+chromadb>=0.5.0,<1.0
+sentence-transformers>=3.0.0,<6.0
+openai>=1.0.0,<2.0
+anthropic>=0.40.0,<1.0
+python-dotenv>=1.0.0,<2.0
+streamlit>=1.40.0,<2.0
+datasets>=2.0.0,<5.0
+pandas>=2.0.0,<3.0
+pydantic>=2.0.0,<3.0
