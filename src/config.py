@@ -63,7 +63,7 @@ LLM_MODEL = _secret("LLM_MODEL", "gpt-4o-mini")
 # How many corpus paragraphs to index. Env-overridable so you can scale the knowledge
 # base without touching code: `MAX_DOCS=19000 python -m scripts.build_index` indexes the
 # whole SQuAD corpus. Default raised to 5000 (covers ~100+ Wikipedia topics, not 13).
-MAX_DOCS = int(os.getenv("MAX_DOCS", "5000"))
+MAX_DOCS = int(_secret("MAX_DOCS", "5000"))
 
 # ----------------------------------------------------------------------------
 # Layer 2 additions

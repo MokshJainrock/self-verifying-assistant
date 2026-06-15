@@ -11,3 +11,16 @@ build/
 
 # OS
 .DS_Store
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Vector index: a version-specific binary, NOT portable across machines/versions.
+# The app rebuilds it on first run, so it must not be committed.
+data/chroma/
+
+# Runtime log (recreated as the app runs)
+data/query_log.jsonl
+
+# (data/eval_summary.json and data/eval_results.csv ARE committed on purpose,
+#  so the deployed app's Evaluation tab shows real numbers.)

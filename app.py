@@ -20,8 +20,20 @@ from src import pipeline, embed_store, config
 
 st.set_page_config(page_title="Self-Verifying Assistant", layout="wide")
 st.title("Self-Verifying Knowledge Assistant")
-st.caption("Retriever → Responder (OpenAI) → Verifier (Claude) → Confidence Gate. "
+st.caption("Retriever -> Responder (OpenAI) -> Verifier (Claude) -> Confidence Gate. "
            "Answers only from sources, verifies every claim, and refuses when unsure.")
+
+
+# Build the index on first load if it's missing (fresh deploy) — runs once per
+# container thanks to cache_resource. On Streamlit Cloud the first visitor waits while
+# it builds; everyone after is instant.
+@st.cache_resource(show_spinner="Preparing knowledge base (first load can take a minute)...")
+def _ready():
+    embed_store.ensure_index()
+    return True
+
+
+_ready()
 
 
 # --------------------------------------------------------------------------
