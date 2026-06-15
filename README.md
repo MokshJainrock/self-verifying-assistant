@@ -1,5 +1,7 @@
 # Self-Verifying Knowledge Assistant
 
+**Author:** [Moksh Jain](https://github.com/MokshJainrock) ([@MokshJainrock](https://github.com/MokshJainrock))
+
 A question-answering system that only answers from a trusted set of documents,
 checks its own answers with a second independent AI, and says "I don't know" when
 it isn't sure instead of making something up.
