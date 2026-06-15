@@ -1,0 +1,16 @@
+# Secrets and local config
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Generated index (rebuild with scripts/build_index.py)
+data/chroma/
+
+# OS
+.DS_Store
