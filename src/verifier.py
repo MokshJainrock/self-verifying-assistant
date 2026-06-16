@@ -61,6 +61,16 @@ def _format_sources(chunks) -> str:
     )
 
 
+# Models that support adaptive thinking. Haiku 4.5 and older models do NOT — sending
+# `thinking: {type: "adaptive"}` to them returns a 400. Keep this list small and explicit
+# so swapping VERIFIER_MODEL never silently breaks the verifier.
+_ADAPTIVE_THINKING_MODELS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "fable-5")
+
+
+def _supports_adaptive_thinking(model: str) -> bool:
+    return any(tag in model for tag in _ADAPTIVE_THINKING_MODELS)
+
+
 def verify(answer_text: str, chunks: list) -> VerificationResult:
     """
     Run the Verifier. Returns a VerificationResult (list of per-claim checks).
@@ -74,18 +84,22 @@ def verify(answer_text: str, chunks: list) -> VerificationResult:
         f"ANSWER TO CHECK:\n{answer_text}"
     )
 
+    # messages.parse() validates Claude's reply against our Pydantic schema.
+    # Adaptive thinking helps verification (a reasoning task) but is only supported on
+    # some models — Haiku 4.5 rejects it with a 400. So we add it ONLY for models that
+    # support it, and omit it otherwise (structured outputs still work without it).
+    kwargs = dict(
+        model=config.VERIFIER_MODEL,
+        max_tokens=4000,
+        system=_SYSTEM,
+        messages=[{"role": "user", "content": user}],
+        output_format=VerificationResult,
+    )
+    if _supports_adaptive_thinking(config.VERIFIER_MODEL):
+        kwargs["thinking"] = {"type": "adaptive"}
+
     try:
-        # messages.parse() validates Claude's reply against our Pydantic schema.
-        # adaptive thinking: verification is a reasoning task, so we let Claude
-        # think before committing to per-claim verdicts. (Cost/latency note in README.)
-        resp = _client.messages.parse(
-            model=config.VERIFIER_MODEL,
-            max_tokens=4000,
-            system=_SYSTEM,
-            thinking={"type": "adaptive"},
-            messages=[{"role": "user", "content": user}],
-            output_format=VerificationResult,
-        )
+        resp = _client.messages.parse(**kwargs)
         # On a safety refusal, parsed_output can be None — treat as "couldn't verify".
         return resp.parsed_output or VerificationResult(claims=[])
     except anthropic.APIError as e:
