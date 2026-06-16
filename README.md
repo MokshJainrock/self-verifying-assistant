@@ -3,191 +3,179 @@
 **Author:** [Moksh Jain](https://github.com/MokshJainrock) ([@MokshJainrock](https://github.com/MokshJainrock))
 live demo: https://self-verifying-assistant.streamlit.app
 
-A question-answering system that only answers from a trusted set of documents,
-checks its own answers with a second independent AI, and says "I don't know" when
-it isn't sure instead of making something up.
+A question-answering app that only answers from a fixed set of documents, has a second
+AI fact-check every answer, and just says "I don't know" when the answer isn't there
+instead of making something up.
 
-## The problem it solves
+## Why I built it
 
-Normal AI chatbots have a dangerous habit: when they don't know something, they
-often make up a confident, wrong answer. For real business use (healthcare, finance,
-support, legal), a confident wrong answer is worse than no answer at all.
+LLM chatbots have one habit that makes them hard to trust for anything serious: when
+they don't actually know something, they'll often hand you a confident, wrong answer
+anyway. In a hospital, a bank, or a support queue, a confident wrong answer is worse
+than no answer.
 
-This system is built so that does not happen. It only answers using the documents it
-was given, it shows which document each statement came from, a separate model
-fact-checks every claim, and if anything is unsupported it refuses or sends the case
-to a human instead of guessing.
+I wanted to build the opposite. This one only answers from documents it was given, it
+shows you which document each sentence came from, it runs every claim past a separate
+fact-checker, and it refuses (or flags the case for a human) when it can't back
+something up.
 
 ## How it works
 
-A question passes through four steps:
+Every question goes through four stages:
 
-1. Retriever - searches the document collection and pulls the most relevant passages.
-2. Responder - writes an answer using only those passages, with citations. If the
-   answer is not in the passages, it declines.
-3. Verifier - a different AI model (Claude) independently re-reads the passages and
-   checks, claim by claim, whether each statement is actually supported. It does not
-   trust the Responder's own citations - it checks for itself.
-4. Confidence Gate - looks at all the signals and makes one final decision:
-   - ANSWER: grounded and confident, return it to the user.
-   - REFUSE: the answer is not in the documents, decline.
-   - ESCALATE: an answer was drafted but a claim could not be verified, send it to a
-     human reviewer.
+1. **Retriever** searches the documents and pulls the most relevant passages.
+2. **Responder** (OpenAI gpt-4o-mini) writes an answer using only those passages, with
+   citations. If the answer isn't in them, it declines.
+3. **Verifier** (Anthropic Claude) re-reads the passages on its own and checks the
+   answer claim by claim. It doesn't trust the Responder's citations; it checks for
+   itself.
+4. **Confidence Gate** weighs all of that and makes the final call: ANSWER, REFUSE, or
+   ESCALATE to a human reviewer.
 
-The most important design choice: the Responder and the Verifier are two different
-AI models from two different companies (OpenAI writes the answer, Anthropic's Claude
-checks it). Because they do not share the same training, they do not share the same
-blind spots. A single model checking its own work just agrees with itself; two
-independent models catch each other's mistakes. That is what makes the verification
-meaningful.
+The part I care about most is that the Responder and the Verifier are different models
+from different companies. OpenAI writes the answer, Claude checks it. They don't share
+training data, so they don't share blind spots. A model checking its own work mostly
+just agrees with itself; two independent models actually catch each other's mistakes.
+That's the whole reason the fact-checking step means anything.
 
-## What is in the knowledge base
+## The agentic layer
 
-The documents come from SQuAD 2.0, a public dataset built from Wikipedia paragraphs.
-By default the system indexes 5,000 paragraphs covering about 95 Wikipedia topics
-(for example: the Alps, Beyonce, the iPod, solar energy, To Kill a Mockingbird,
-Alexander Graham Bell, Buddhism, New York City).
+This was the last thing I added. When the system refuses, it's sometimes not because
+the answer doesn't exist, but because the question was worded badly and retrieval
+grabbed the wrong passages. So I built a small controller that, on a refusal, rewrites
+the query, searches again, and tries once or twice more before giving up. You turn it on
+with the "Agentic mode" toggle in the sidebar.
 
-This is why the system answers questions about those topics and refuses everything
-else. If you ask "Who is the president?", it refuses, because that is not in its
-documents. That refusal is the system working correctly, not a bug.
+The honest part: my first version of this made things worse. It retried too eagerly and
+started talking itself into answering questions it should have refused, so hallucination
+went up and correct-refusal dropped. I ran a proper A/B test (single pass vs the loop),
+saw the regression in the numbers, and went through the failing cases one by one. The
+damage all came from retrying "partially grounded" answers on trick questions. So I
+changed the rule to only retry flat refusals, never partial ones. After that the loop
+started recovering answerable questions it used to miss, with zero new hallucinations
+and no drop in refusal. It's off by default; set AGENT_ENABLED to turn it on.
 
-You can index more topics by raising MAX_DOCS (see Configuration below), or point it
-at your own documents instead.
+## What's in the knowledge base
 
-## Setup
+The documents are Wikipedia paragraphs from SQuAD 2.0, a public dataset. By default it
+indexes 5,000 paragraphs across roughly 95 topics: the Alps, Beyoncé, the iPod, solar
+energy, To Kill a Mockingbird, Buddhism, New York City, and so on.
 
-You need Python 3, an OpenAI API key (for the Responder), and an Anthropic API key
-(for the Verifier). Both keys cost a small amount per use; a few dollars on each is
-plenty for this project.
+So it answers questions about those topics and refuses everything else. Ask it "who's
+the president?" and it refuses, because that isn't in its documents. That's the system
+working correctly, not a bug. You can point it at your own documents instead, or raise
+MAX_DOCS to cover more.
+
+## Results
+
+I tested it on 50 answerable questions and 50 deliberately unanswerable ones (SQuAD's
+"impossible" questions, written to bait a model into answering). Two numbers matter
+here, not one: can it answer correctly, and does it correctly refuse what it can't
+answer.
+
+| What it measures | Result |
+|---|---|
+| Correct-refusal rate (declines unanswerable questions) | 88% |
+| Hallucination rate (answers them anyway, lower is better) | 12% |
+| Accuracy when it does answer | ~92% |
+| Cost per question | a fraction of a cent |
+
+Getting there took a few rounds. My first run was 82% refusal and 18% hallucination.
+When I looked at what was failing, almost all of it was "false premise" questions:
+ones that twist a real fact (wrong year, wrong number, wrong name) so they can't
+actually be answered, and the system was answering the nearest real fact instead of
+refusing. I added one rule telling the Responder to check the question's specifics
+against the sources first, and that alone took hallucination from 18% to 12% and
+refusal from 82% to 88% with no loss in accuracy. Most of this project was that loop:
+measure, look at what broke, fix one thing, measure again.
+
+## Running it yourself
+
+You'll need Python 3, an OpenAI key (for the Responder), and an Anthropic key (for the
+Verifier). A few dollars on each is plenty.
 
 ```
-cd self-verifying-assistant
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
 cp .env.example .env
 ```
 
-Then open .env and fill in your two keys:
+Put your keys in `.env`:
 
 ```
-LLM_API_KEY=sk-...            your OpenAI key (Responder = gpt-4o-mini)
-ANTHROPIC_API_KEY=sk-ant-...  your Anthropic key (Verifier = Claude)
+LLM_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 VERIFIER_MODEL=claude-sonnet-4-6
 ```
 
-## Build the index (run once)
-
-This downloads the documents, turns them into searchable vectors, and saves them to
-disk. It runs locally and is free (no API calls). It takes a few minutes.
+Build the search index once. This runs locally, costs nothing, and takes a few minutes:
 
 ```
 python -m scripts.build_index
 ```
 
-## Run the app
+Run the app:
 
 ```
 streamlit run app.py
 ```
 
-This opens a dashboard in your browser with four tabs:
+The dashboard has four tabs. **Ask** is where you type a question and see the decision,
+the claim-by-claim check, and the source passages (the sidebar has access control and
+the agentic toggle). **Evaluation** shows the test scores and every scored question.
+**Query log** lists every question served with its cost and speed. **Knowledge base**
+shows what's indexed.
 
-- Ask: type a question and see the decision, the answer, the claim-by-claim check,
-  and the source passages. A sidebar lets you restrict which documents can be used
-  (access control).
-- Evaluation: the test results - accuracy, refusal rate, and every question scored.
-- Query log: every question the system has answered, with its decision, speed, and
-  estimated cost.
-- Knowledge base: which topics are indexed and how much of each.
+One gotcha: if you edit anything in `src/` while the app is running, stop it fully with
+Ctrl+C and start it again. A browser refresh isn't enough, since Streamlit keeps the old
+modules loaded.
 
-Note: if you change a file in src/ while the app is running, stop it fully with
-Ctrl+C and start it again. A browser refresh is not enough.
-
-## Measuring it (the evaluation)
-
-The honest way to judge this kind of system is to test two things, not one:
-
-- Can it answer correctly when the answer is available?
-- Does it correctly refuse questions that have no answer in the documents?
-
-The test set uses real SQuAD 2.0 questions: answerable ones (whose answers are in the
-documents) and unanswerable ones (deliberately written so the answer is not there).
+## Testing it
 
 ```
-python -m scripts.evaluate --n 50
+python -m scripts.evaluate --n 50      # accuracy and refusal on the full pipeline
+python -m scripts.ab_eval --n 50       # single pass vs the agentic loop, head to head
 ```
 
-This runs the full system on 50 answerable plus 50 unanswerable questions, prints a
-report, and saves data/eval_results.csv and data/eval_summary.json.
+## Things I built in for scale
 
-## Results
+- **Access control.** Retrieval can be limited to the documents a given user is allowed
+  to see, enforced at search time so a document they shouldn't see never reaches the
+  model in the first place.
+- **Selective verification.** The Verifier call is the expensive part, so it's skipped
+  when retrieval is very strong and the answer is almost certainly fine. That keeps cost
+  down at volume. Set VERIFY_ALWAYS to force it on everywhere for high-stakes use.
+- **Logging.** Every query is written to `data/query_log.jsonl` with its decision, cost,
+  and latency, so there's an audit trail.
 
-Measured on 50 answerable and 50 unanswerable questions:
-
-| Metric                  | Meaning                                              | Result |
-|-------------------------|------------------------------------------------------|--------|
-| Correct-refusal rate    | unanswerable questions it correctly declined         | 88%    |
-| Hallucination rate      | unanswerable questions it answered anyway (want low) | 12%    |
-| Accuracy when answered  | of the answers it gave, how many were correct        | 92%    |
-| Answer rate             | how often it chose to answer an answerable question  | 78%    |
-| Cost                    | per question (selective verification keeps it low)   | ~$0.002|
-
-How those numbers were reached: the first run scored 82% correct-refusal and 18%
-hallucination. Looking at the failures showed they were almost all "false premise"
-questions - questions that twist a real fact (wrong date, wrong number, wrong name)
-so the question cannot actually be answered, and the system was answering the nearest
-true fact instead of refusing. Adding one rule to the Responder (check that the
-question's specifics match the sources before answering) dropped hallucination from
-18% to 12% and raised correct-refusal from 82% to 88%, with no loss in accuracy. That
-before-and-after is a clean, measured improvement.
-
-## How it scales
-
-The system is small to run but built like a production one:
-
-- Larger corpus: MAX_DOCS controls how many documents are indexed (default 5,000).
-- Access control: retrieval can be limited to the documents a given user is allowed
-  to see, enforced at search time so forbidden documents never reach the model.
-- Selective verification: the expensive Verifier call is skipped when retrieval is
-  extremely strong, which is how cost stays low at high volume. Set VERIFY_ALWAYS=true
-  to force verification on every answer for high-stakes use.
-- Observability: every query is logged to data/query_log.jsonl with its decision,
-  speed, and estimated cost - an audit trail.
-
-## Project structure
+## Project layout
 
 ```
-self-verifying-assistant/
-  requirements.txt
-  .env.example          copy to .env and add your keys
-  data/                 the saved index, logs, and eval output
-  src/
-    config.py           all settings in one place
-    llm.py              the Responder's model client (OpenAI)
-    ingest.py           load and split the documents
-    embed_store.py      turn text into vectors, store and search them
-    retriever.py        the Retriever
-    responder.py        the Responder (writes cited answers, can decline)
-    verifier.py         the Verifier (Claude, checks each claim)
-    gate.py             the Confidence Gate (final decision)
-    pipeline.py         runs the whole flow end to end
-    metrics.py          scoring helpers for the evaluation
-  scripts/
-    build_index.py      builds the searchable index (run once)
-    evaluate.py         runs the test and prints the results
-  app.py                the dashboard
+src/
+  config.py        every setting in one place
+  llm.py           Responder client (OpenAI)
+  ingest.py        load and chunk the documents
+  embed_store.py   embeddings and the vector store
+  retriever.py     the Retriever
+  responder.py     the Responder
+  verifier.py      the Verifier (Claude)
+  gate.py          the Confidence Gate
+  reformulator.py  query rewriting for the agentic loop
+  agent.py         the agentic controller
+  pipeline.py      ties the four stages together
+  metrics.py       scoring for the evaluation
+scripts/
+  build_index.py   build the search index (run once)
+  evaluate.py      accuracy and refusal test
+  ab_eval.py       single pass vs agentic comparison
+app.py             the dashboard
 ```
 
-## Configuration
+## Settings worth knowing (src/config.py)
 
-All settings live in src/config.py (some can be set in .env):
-
-- MAX_DOCS: how many documents to index.
-- TOP_K: how many passages to retrieve per question.
-- RETRIEVAL_MAX_DISTANCE: how close a passage must be to count as relevant.
-- GROUNDING_FULL: the share of claims that must be supported to answer automatically.
-- VERIFY_ALWAYS / STRONG_RETRIEVAL_DISTANCE: controls selective verification.
-- VERIFIER_MODEL: which Claude model checks the answers.
+- `MAX_DOCS` — how many documents to index
+- `TOP_K` — passages retrieved per question
+- `VERIFIER_MODEL` — which Claude model checks the answers
+- `AGENT_ENABLED` — turn the agentic retry loop on or off
+- `RETRIEVAL_MAX_DISTANCE`, `GROUNDING_FULL` — the gate's thresholds
