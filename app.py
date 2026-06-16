@@ -81,7 +81,7 @@ with tab_ask:
     # the system behaves exactly as the single-pass demo unless this is toggled on.
     st.sidebar.header("Mode")
     agentic = st.sidebar.checkbox(
-        "Agentic mode (retry on refusal)", value=config.AGENT_ENABLED,
+        "Agentic mode (retry on refusal)", value=getattr(config, "AGENT_ENABLED", False),
         help="Reformulate the query and re-retrieve when the system refuses, "
              "bounded by a hard retry cap. Off = single pass.")
 
