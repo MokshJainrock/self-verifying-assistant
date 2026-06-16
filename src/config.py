@@ -70,9 +70,12 @@ MAX_DOCS = int(_secret("MAX_DOCS", "5000"))
 # ----------------------------------------------------------------------------
 
 # --- Verifier (Claude) ---
-# A DIFFERENT model from the Responder, deliberately. Default to the strongest
-# judge; downgrade only as a conscious cost decision (see study-guide notes).
-VERIFIER_MODEL = _secret("VERIFIER_MODEL", "claude-opus-4-8")
+# A DIFFERENT model from the Responder, deliberately (cross-provider independence —
+# the verifier must NOT be an OpenAI model, or it shares the responder's blind spots).
+# Default is Sonnet 4.6: the strong, stable judge that produced the validated
+# 88% correct-refusal / 12% hallucination numbers. (Haiku is cheaper but a weaker,
+# noisier judge; Opus is stronger but pricier with diminishing returns here.)
+VERIFIER_MODEL = _secret("VERIFIER_MODEL", "claude-sonnet-4-6")
 _secret("ANTHROPIC_API_KEY", "")
 
 # --- Confidence Gate thresholds ---
@@ -116,3 +119,20 @@ VERIFIER_PRICE_OUT = 15.0    # claude-sonnet-4-6 output $/1M
 # Every query appends one JSON line here: latency, decision, signals, est. cost.
 # This is the audit trail / metrics source a real deployment needs.
 QUERY_LOG = os.path.join(os.path.dirname(__file__), "..", "data", "query_log.jsonl")
+
+# ----------------------------------------------------------------------------
+# Agentic controller (plan-act-observe loop). ALL ADDITIVE + OFF BY DEFAULT, so the
+# existing single-pass behavior is unchanged until something explicitly opts in.
+# ----------------------------------------------------------------------------
+
+# Master switch. The app/eval choose pipeline.answer() (single pass) vs agent.answer()
+# (the loop) based on this. Default false => live behavior is exactly as before.
+AGENT_ENABLED = os.getenv("AGENT_ENABLED", "false").lower() == "true"
+
+# Hard retry cap. The loop runs at most MAX_AGENT_STEPS + 1 full pipeline passes.
+# This is the primary guard against an uncapped loop / runaway cost.
+MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "2"))
+
+# A retry only continues if grounding improved by at least this much vs the previous
+# attempt. Below it, we stop (acting isn't helping) instead of burning more calls.
+MIN_GROUNDING_IMPROVEMENT = float(os.getenv("MIN_GROUNDING_IMPROVEMENT", "0.05"))

@@ -16,7 +16,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-from src import pipeline, embed_store, config
+from src import pipeline, agent, embed_store, config
 
 st.set_page_config(page_title="Self-Verifying Assistant", layout="wide")
 st.title("Self-Verifying Knowledge Assistant")
@@ -76,11 +76,21 @@ with tab_ask:
                        "only answer from sources the user is allowed to see.")
     allowed = st.sidebar.multiselect("Allowed sources", titles) or None
 
+    # Agentic mode: when ON, a REFUSED answer triggers query reformulation + a bounded
+    # retry loop before the final decision. Defaults to config.AGENT_ENABLED (off), so
+    # the system behaves exactly as the single-pass demo unless this is toggled on.
+    st.sidebar.header("Mode")
+    agentic = st.sidebar.checkbox(
+        "Agentic mode (retry on refusal)", value=config.AGENT_ENABLED,
+        help="Reformulate the query and re-retrieve when the system refuses, "
+             "bounded by a hard retry cap. Off = single pass.")
+
     question = st.text_input("Ask a question about the knowledge base:")
 
     if question:
+        answer_fn = agent.answer if agentic else pipeline.answer
         with st.spinner("Retrieving → answering → verifying..."):
-            r = pipeline.answer(question, allowed_sources=allowed)
+            r = answer_fn(question, allowed_sources=allowed)
 
         # Decision banner — the headline.
         if r["decision"] == "ANSWER":
@@ -90,13 +100,29 @@ with tab_ask:
         else:
             st.error("REFUSED — not enough grounded information")
 
-        # Operational signals (what a production console shows).
+        # Operational signals. When the agentic loop ran, latency/cost are the TOTAL
+        # across all its passes (not just the final one).
+        latency = r["agent"]["total_latency_ms"] if "agent" in r else r["latency_ms"]
+        cost = r["agent"]["total_cost_usd"] if "agent" in r else r["est_cost_usd"]
         c1, c2, c3 = st.columns(3)
-        c1.metric("Latency", f"{r['latency_ms']} ms")
-        c2.metric("Est. cost", f"${r['est_cost_usd']:.5f}")
+        c1.metric("Latency", f"{latency} ms")
+        c2.metric("Est. cost", f"${cost:.5f}")
         c3.metric("Verifier", r["verify_status"])
         for reason in r["reasons"]:
             st.caption(f"• {reason}")
+
+        # Agentic trace — only present when agentic mode ran.
+        if "agent" in r:
+            ag = r["agent"]
+            tag = "recovered via retry" if ag["recovered"] else f"stopped: {ag['stop_reason']}"
+            st.caption(f"Agentic mode: {ag['steps_used']} retr(y/ies) · {tag}")
+            if ag["steps_used"] > 0:
+                with st.expander("Agent reasoning trace"):
+                    for t in ag["attempts"]:
+                        st.write(f"Attempt {t['attempt']}: **{t['decision']}** "
+                                 f"(grounding {t['grounding_score']})")
+                        if t["action"]:
+                            st.caption(t["action"])
 
         st.subheader("Drafted answer")
         st.write(r["answer"])
